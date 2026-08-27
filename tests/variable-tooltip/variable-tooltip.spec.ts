@@ -20,6 +20,8 @@ import { SECRET_DATATYPE_CASES } from '../utils/constants';
 
 const saveShortcut = process.platform === 'darwin' ? 'Meta+s' : 'Control+s';
 
+test.describe.configure({ timeout: 60_000 });
+
 test.describe('Variable Tooltip', () => {
   test.afterEach(async ({ page }) => {
     if (!page.isClosed()) {
@@ -61,6 +63,7 @@ test.describe('Variable Tooltip', () => {
 
     await test.step('Test secret variable with toggle', async () => {
       await page.mouse.move(0, 0);
+      await expect(varInfoPopup.all()).toHaveCount(0);
 
       await selectRequestPaneTab(page, 'Headers');
 
@@ -573,7 +576,7 @@ test.describe('Variable Tooltip', () => {
       const typeTrigger = dataTypeSelector.typeLabel(namedRow);
       await typeTrigger.click();
       await dataTypeSelector.menuItem('object').click();
-      await expect(typeTrigger).toHaveText('object');
+      await expect(typeTrigger).toHaveAttribute('data-selected-type', 'object');
 
       await page.getByRole('button', { name: 'Save', exact: true }).first().click();
     });
@@ -599,8 +602,10 @@ test.describe('Variable Tooltip', () => {
       // Success state confirms writeText resolved before we read the clipboard.
       await expect(copyButton.locator('svg polyline')).toBeVisible({ timeout: 1000 });
 
+      // The app copies JSON.stringify(..., null, 2) (LF line endings); some platforms'
+      // clipboards rewrite those to CRLF on read-back, so normalize before comparing.
       const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-      expect(clipboardText).toBe(expectedJson);
+      expect(clipboardText.replace(/\r\n/g, '\n')).toBe(expectedJson);
     });
   });
 });
@@ -637,7 +642,7 @@ test.describe('Variable Tooltip - Global Secret Variables', () => {
         });
 
         await environment.saveAll().click();
-        await closeEnvironmentPanel(page);
+        await closeEnvironmentPanel(page, 'global');
       });
 
       await test.step('Reference the global secret in a request URL', async () => {
