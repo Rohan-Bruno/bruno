@@ -1,4 +1,5 @@
 import React from 'react';
+import { get } from 'lodash';
 import { IconApi, IconBrandGraphql, IconPlugConnected, IconCode } from '@tabler/icons';
 import { newHttpRequest, newWsRequest, newGrpcRequest } from 'providers/ReduxStore/slices/collections/actions';
 import { generateUniqueRequestName } from 'utils/collections';
@@ -11,10 +12,16 @@ const createRequest = async ({ dispatch, collection, itemUid, requestType }) => 
     const uniqueName = await generateUniqueRequestName(collection, 'Untitled', itemUid);
     const filename = sanitizeName(uniqueName);
 
+    const presets = get(
+      collection,
+      collection?.draft?.brunoConfig ? 'draft.brunoConfig.presets' : 'brunoConfig.presets',
+      {}
+    );
+
     const baseParams = {
       requestName: uniqueName,
       filename,
-      requestUrl: '',
+      requestUrl: presets.requestUrl || '',
       collectionUid: collection.uid,
       itemUid
     };
