@@ -394,6 +394,16 @@ describe('buildQueryString', () => {
     const result = buildQueryString(params, { encode: true });
     expect(result).toBe('tag=test%23abc&a=x%26y&b=x%3Dy&c=x%3Fy&d=x%2By&e=hello%20world');
   });
+
+  it('should encode & in a value to %26 when encode is true (Encode URL toggle ON)', () => {
+    const params = [{ name: 'search', value: 'bruno&test' }];
+    expect(buildQueryString(params, { encode: true })).toBe('search=bruno%26test');
+  });
+
+  it('should leave & in a value untouched when encode is false (Encode URL toggle OFF)', () => {
+    const params = [{ name: 'search', value: 'bruno&test' }];
+    expect(buildQueryString(params)).toBe('search=bruno&test');
+  });
 });
 
 describe('safeDecodeURIComponent', () => {
