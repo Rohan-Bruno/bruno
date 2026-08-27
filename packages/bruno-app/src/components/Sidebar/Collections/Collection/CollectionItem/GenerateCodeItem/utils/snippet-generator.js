@@ -1,11 +1,10 @@
 import { buildHar } from '@usebruno/common';
-import { stripOrigin } from '@usebruno/common/utils';
+import { stripOrigin, buildQueryString } from '@usebruno/common/utils';
 import { getAllVariables, getTreePathFromCollectionToItem, mergeHeaders } from 'utils/collections/index';
 import { resolveInheritedAuth } from 'utils/auth';
 import { get } from 'lodash';
 import { interpolateUrl, interpolateUrlPathParams, prependDefaultScheme } from 'utils/url/index';
 import { parse } from 'url';
-import { stringify } from 'query-string';
 
 // curl --digest / --ntlm are surface-level snippet adjustments, not part of
 // the HAR contract — keep them at this layer.
@@ -96,8 +95,12 @@ const generateSnippet = async ({ language, item, collection, shouldInterpolate =
      * their own bytes displayed; GenerateCodeItem no longer sets it.
      */
     const displayRawUrl = item.rawUrl || rawUrl;
-    const parsed = parse(encodedUrl, true, true);
-    const search = stringify(parsed.query, { sort: false });
+    // Anchor on har.queryString (the same structured source HTTPSnippet encoded from),
+    // not a re-flattened/re-split `encodedUrl` — a value containing a literal `&` splits
+    // into bogus extra params under a naive query-string reparse, so the anchor no longer
+    // matches what HTTPSnippet actually rendered and the swap below silently no-ops.
+    const parsed = parse(encodedUrl, false, true);
+    const search = buildQueryString(har.queryString, { encode: true });
     const httpSnippetPath = search ? `${parsed.pathname}?${search}` : parsed.pathname;
 
     let desiredPath;

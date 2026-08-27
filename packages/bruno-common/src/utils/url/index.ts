@@ -69,6 +69,17 @@ interface BuildQueryStringOptions {
   encode?: boolean;
 }
 
+interface EncodeUrlOptions {
+  /**
+   * Structured query params to encode instead of re-splitting the URL's query
+   * string on `&`. A flattened URL can't tell a literal `&` inside a value
+   * apart from the separator between params, so a value like `bruno&test`
+   * mis-splits into two params unless the caller supplies the original
+   * structured array (e.g. the request's `params`) here.
+   */
+  queryParams?: QueryParam[];
+}
+
 interface ExtractQueryParamsOptions {
   decode?: boolean;
   /**
@@ -183,7 +194,7 @@ const encodePathSegments = (path: string): string =>
 // encoding `#` as data is the predictable choice. To send a URL with a
 // literal `#section` fragment, toggle OFF — OFF preserves the user's URL
 // byte-for-byte.
-const encodeUrl = (url: string): string => {
+const encodeUrl = (url: string, { queryParams }: EncodeUrlOptions = {}): string => {
   if (!url || typeof url !== 'string') {
     return url;
   }
@@ -209,19 +220,8 @@ const encodeUrl = (url: string): string => {
   if (queryIdx >= 0) {
     // stripFragment: false so `#` in the query value is treated as a literal
     // byte and gets encoded to `%23` by the encodeURIComponent below.
-    const params = parseQueryParams(queryString, { decode: false, stripFragment: false });
-    const rebuilt = params
-      .map(({ name, value }) => {
-        const encodedName = encodeURIComponent(name);
-        if (value === undefined) {
-          return encodedName;
-        }
-        const encodedValue = encodeURIComponent(value);
-        return `${encodedName}=${encodedValue}`;
-      })
-      .filter((pair) => pair.length > 0 && !pair.startsWith('='))
-      .join('&');
-    result += `?${rebuilt}`;
+    const params = queryParams ?? parseQueryParams(queryString, { decode: false, stripFragment: false });
+    result += `?${buildQueryString(params, { encode: true })}`;
   }
 
   return result;
@@ -346,6 +346,7 @@ export {
   isSameOrigin,
   type QueryParam,
   type BuildQueryStringOptions,
+  type EncodeUrlOptions,
   type ExtractQueryParamsOptions,
   type MockResponseRouteKeyInput
 };

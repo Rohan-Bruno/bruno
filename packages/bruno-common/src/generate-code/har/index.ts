@@ -623,52 +623,14 @@ export async function buildHar(input: BuildHarInput): Promise<BuildHarOutput> {
   const leadingToken = needsSyntheticScheme ? hashedUrl.match(/^[A-Za-z0-9._-]+/)?.[0] ?? '' : '';
   const urlForPipeline = needsSyntheticScheme ? syntheticScheme + hashedUrl : hashedUrl;
 
-  // Step 3 — Hash path-param positions via `patternHasher`. The URL now
-  // contains opaque `bruno-var-hash-XXX` tokens instead of `:id`, so the
-  // next `encodeUrl()` pass can encode non-path-param chars in the path
-  // without touching path-param positions. `restorePathParams` (returned
-  // here) unhashes those tokens back to `:id` literals and then substitutes
-  // each one for the path-param value (raw or encoded per the flag).
-  const encodeFlag = working.settings?.encodeUrl === true;
-  const { url: urlWithPlaceholders, restore: restorePathParams } = hashPathParamPositions(urlForPipeline, working.pathParams);
-
-  // Step 4 — Apply `encodeUrl()` to the URL with placeholders. Placeholders
-  // are alphanumeric+dash, so `encodeURIComponent` (used per path segment
-  // inside `encodeUrl`) leaves them untouched. The rest of the path and
-  // query are encoded per the existing content-blind contract (PR #5507).
-  const encodedUrlWithPlaceholders = encodeUrl(urlWithPlaceholders);
-
-  // Step 5 — Restore placeholders. `rawUrl` always uses raw values (for the
-  // toggle-OFF display swap upstream). `encodedUrl` uses single-encoded
-  // values when toggle is ON, raw when OFF.
-  const rawUrl = restorePathParams(urlWithPlaceholders, { encode: false });
-  const encodedUrl = restorePathParams(encodedUrlWithPlaceholders, { encode: encodeFlag });
-
-  // Sanity gate. Stays here so HAR consumers see exactly what we'd send.
-  if (!looksLikeUrl(encodedUrl)) {
-    throw new Error('invalid request url');
-  }
-
-  // Step 5 — Auth → headers. Append to request headers. Request-signing auth (EdgeGrid) must
-  // sign the same `encodedUrl` the snippet transmits, or the signature won't cover the sent bytes.
-  const authHeaders = await authToHeaders(working.auth, variables, input.oauth2Credentials, input.collectionUid, {
-    method: working.method || 'GET',
-    url: encodedUrl,
-    headers: working.headers,
-    bodyText: buildPostData(working.body)?.text
-  });
-  const allHeaders = mergeAndDedupeHeaders(working.headers, authHeaders);
-
-  // Step 6 — Finalize headers (filter enabled, lowercase, default content-type).
-  const harHeaders = finalizeHeaders(working, allHeaders);
-
-  // Step 7 — Query string array. HAR's queryString is the single source of
-  // truth for what HTTPSnippet renders into the URL slot. The URL itself
-  // (next step) has its query stripped to avoid the legacy-polyfill merge bug.
-  // The fallback source is the *hashed* URL rather than the encoded one, so that
-  // when it is used its values carry user-typed bytes: feeding the encoded URL
-  // here would double-encode (`:` → `%3A` from encodeUrl, then `%3A` → `%253A`
-  // from HTTPSnippet's encodeURIComponent pass).
+  // Step 3 — Query string array. HAR's queryString is the single source of truth for
+  // what HTTPSnippet renders into the URL slot, and — via the `queryParams`
+  // override below — also for what `encodeUrl()` renders for `encodedUrl`.
+  // A flattened URL string can't tell a literal `&` inside a value apart
+  // from the separator between params (`search=bruno&test` mis-splits into
+  // two params on a naive re-parse), so both the HAR queryString and the
+  // encoded URL must be built from this same structured array rather than
+  // by re-parsing the URL text.
   //
   // Hashing the assembled values is what keeps `{{var}}` alive in a query when the
   // caller wants templates preserved. HTTPSnippet runs encodeURIComponent over every
@@ -686,10 +648,52 @@ export async function buildHar(input: BuildHarInput): Promise<BuildHarOutput> {
     return { ...param, value: hashed };
   });
 
-  // Step 8 — Strip the URL's query before storing in HAR (the bracket-key fix).
+  // Step 4 — Hash path-param positions via `patternHasher`. The URL now
+  // contains opaque `bruno-var-hash-XXX` tokens instead of `:id`, so the
+  // next `encodeUrl()` pass can encode non-path-param chars in the path
+  // without touching path-param positions. `restorePathParams` (returned
+  // here) unhashes those tokens back to `:id` literals and then substitutes
+  // each one for the path-param value (raw or encoded per the flag).
+  const encodeFlag = working.settings?.encodeUrl === true;
+  const { url: urlWithPlaceholders, restore: restorePathParams } = hashPathParamPositions(urlForPipeline, working.pathParams);
+
+  // Step 5 — Apply `encodeUrl()` to the URL with placeholders. Placeholders
+  // are alphanumeric+dash, so `encodeURIComponent` (used per path segment
+  // inside `encodeUrl`) leaves them untouched. The rest of the path is
+  // encoded per the existing content-blind contract (PR #5507); the query
+  // is rebuilt from `harQueryString` rather than re-parsed off the URL.
+  const encodedUrlWithPlaceholders = encodeUrl(urlWithPlaceholders, { queryParams: harQueryString });
+
+  // Step 6 — Restore placeholders. `rawUrl` always uses raw values (for the
+  // toggle-OFF display swap upstream). `encodedUrl` uses single-encoded
+  // values when toggle is ON, raw when OFF.
+  const rawUrl = restorePathParams(urlWithPlaceholders, { encode: false });
+  const encodedUrl = restorePathParams(encodedUrlWithPlaceholders, { encode: encodeFlag });
+
+  // Sanity gate. Stays here so HAR consumers see exactly what we'd send.
+  if (!looksLikeUrl(encodedUrl)) {
+    throw new Error('invalid request url');
+  }
+
+  // Step 7 — Auth → headers. Append to request headers. Request-signing auth (EdgeGrid) must
+  // sign the same `encodedUrl` the snippet transmits, or the signature won't cover the sent bytes.
+  const authHeaders = await authToHeaders(working.auth, variables, input.oauth2Credentials, input.collectionUid, {
+    method: working.method || 'GET',
+    url: encodedUrl,
+    headers: working.headers,
+    bodyText: buildPostData(working.body)?.text
+  });
+  const allHeaders = mergeAndDedupeHeaders(working.headers, authHeaders);
+
+  // Step 8 — Finalize headers (filter enabled, lowercase, default content-type).
+  const harHeaders = finalizeHeaders(working, allHeaders);
+
+  // Step 9 — Strip the URL's query before storing in HAR (the bracket-key fix).
+  // `harQueryString` (built above, before path-param hashing) is the sole
+  // source of truth for what HTTPSnippet renders into the URL slot.
   const harUrl = stripQueryStringFromUrl(encodedUrl);
 
-  // Step 9 — Assemble.
+  // Step 10 — Assemble.
   const har: HarRequest = {
     method: working.method || 'GET',
     url: harUrl,

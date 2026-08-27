@@ -950,6 +950,25 @@ describe('generateSnippet – encodeUrl setting', () => {
     expect(result).toContain('time=10:30');
   });
 
+  it('should preserve a literal & inside a query value when encodeUrl is false', async () => {
+    const rawUrl = 'https://echo.usebruno.com/?search=bruno&test';
+    const item = makeItem(rawUrl, { encodeUrl: false });
+    item.request.params = [{ name: 'search', value: 'bruno&test', type: 'query', enabled: true }];
+
+    const result = await generateSnippet({ language, item, collection: baseCollection, shouldInterpolate: false });
+    expect(result).toContain('search=bruno&test');
+    expect(result).not.toContain('%26');
+  });
+
+  it('should encode a literal & inside a query value when encodeUrl is true', async () => {
+    const rawUrl = 'https://echo.usebruno.com/?search=bruno&test';
+    const item = makeItem(rawUrl, { encodeUrl: true });
+    item.request.params = [{ name: 'search', value: 'bruno&test', type: 'query', enabled: true }];
+
+    const result = await generateSnippet({ language, item, collection: baseCollection, shouldInterpolate: false });
+    expect(result).toContain('search=bruno%26test');
+  });
+
   it('should encode URL when encodeUrl is true', async () => {
     const rawUrl = 'https://example.com/api?token=abc123==&type=test';
     const item = makeItem(rawUrl, { encodeUrl: true });
